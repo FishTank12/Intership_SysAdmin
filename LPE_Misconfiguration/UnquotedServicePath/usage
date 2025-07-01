@@ -1,0 +1,5 @@
+.\install-vulnerable-service.ps1 `
+  -ExecutableURL "http://example.com/test.exe" `
+  -FolderPath "C:\Program Files\VulnTest" `
+  -ServiceName "VulnService" `
+  -DisplayName "Vulnerable Service"

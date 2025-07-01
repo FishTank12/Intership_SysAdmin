@@ -1,0 +1,29 @@
+# Define the installer URL and path
+$installerUrl = "https://files.avast.com/iavs9x/avast_free_antivirus_setup_online.exe"
+$installerPath = "$env:TEMP\avast_installer.exe"
+
+Write-Host "[+] Downloading Avast Free Antivirus installer..."
+Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing
+
+if (Test-Path $installerPath) {
+    Write-Host "[+] Running Avast installer with UI (no silent flag)..."
+    # Run installer normally with UI
+    Start-Process -FilePath $installerPath -Wait
+
+    # Give it a few seconds to register
+    Start-Sleep -Seconds 10
+
+    # Check if Avast is installed
+    $avastPath = "C:\Program Files\Avast Software\Avast\AvastUI.exe"
+    if (Test-Path $avastPath) {
+        Write-Host "[+] Avast installed successfully. Launching UI..."
+        Start-Process $avastPath
+    } else {
+        Write-Warning "[!] Avast UI not found. Installation may have failed or requires a reboot."
+    }
+
+    Write-Host "[+] Cleaning up installer..."
+    Remove-Item -Path $installerPath -Force
+} else {
+    Write-Error "[X] Download failed. Installer not found."
+}

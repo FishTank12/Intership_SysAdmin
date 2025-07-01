@@ -1,0 +1,92 @@
+param (
+    [switch]$Toggle
+)
+
+function Request-NewAdminAccount {
+    Write-Host "[!] No additional admin accounts detected."
+    $response = Read-Host "Do you want to create a temporary admin account? (Y/N)"
+    if ($response -match '^[Yy]$') {
+        $username = Read-Host "Enter new admin username"
+        $rawPass = Read-Host "Enter new admin password"
+        $securePass = ConvertTo-SecureString $rawPass -AsPlainText -Force
+
+        if (Get-LocalUser -Name $username -ErrorAction SilentlyContinue) {
+            Write-Host "[!] User '$username' already exists. Skipping creation."
+        } else {
+            try {
+                New-LocalUser -Name $username -Password $securePass -FullName "Auto-generated Admin" -Description "Created for fallback admin access"
+                Add-LocalGroupMember -Group "Administrators" -Member $username
+                Write-Host "[+] Admin user '$username' created successfully."
+            } catch {
+                Write-Host "[!] Failed to create user: $_"
+                exit
+            }
+        }
+    } else {
+        Write-Host "[!] Skipping admin creation. Exiting script."
+        exit
+    }
+}
+
+# STEP 1: Check for other admin users (not "Administrator")
+$otherAdmins = Get-LocalGroupMember -Group "Administrators" | Where-Object { $_.Name -notmatch "Administrator$" }
+if (-not $otherAdmins) {
+    Request-NewAdminAccount
+}
+
+# STEP 2: Block if running as built-in Administrator (prevent lockout)
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+if ($currentUser -match "\\Administrator$") {
+    Write-Host "[!] Logged in as built-in 'Administrator'. Aborting to prevent self-lockout."
+    exit
+}
+
+# STEP 3: Check if current user has admin rights
+$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "[!] You are not an administrator. Cannot continue."
+    exit
+}
+
+# STEP 4: Continue with built-in admin logic
+$admin = Get-LocalUser -Name "Administrator" -ErrorAction SilentlyContinue
+if ($null -eq $admin) {
+    Write-Host "[!] Built-in Administrator account not found. Exiting."
+    exit
+}
+
+if ($Toggle) {
+    if ($admin.Enabled) {
+        Disable-LocalUser -Name "Administrator"
+        Write-Host "[+] Administrator account has been DISABLED."
+    } else {
+        Enable-LocalUser -Name "Administrator"
+        Write-Host "[+] Administrator account has been ENABLED."
+
+        $password = ConvertTo-SecureString "[Depends on the password Chosen" -AsPlainText -Force
+        Set-LocalUser -Name "Administrator" -Password $password
+
+        Write-Host "`n[+] Username: Administrator"
+        Write-Host "[+] Password: [DEPENDS ON the password chosen]`n"
+    }
+    exit
+}
+
+# Default: Enable + set password
+Write-Host "[i] Administrator account found. Enabled: $($admin.Enabled)"
+
+if (-not $admin.Enabled) {
+    Enable-LocalUser -Name "Administrator"
+    Write-Host "[+] Administrator account has been ENABLED."
+} else {
+    Write-Host "[i] Administrator already enabled."
+}
+
+$password = ConvertTo-SecureString "[DEPENDS on the Password Chosen" -AsPlainText -Force
+Set-LocalUser -Name "Administrator" -Password $password
+
+Write-Host "`n[+] Username: Administrator"
+Write-Host "[+] Password: [Depends on the password Chosen]`n"
+Write-Host "[!] Restarting in 20 seconds. Save your work!"
+Start-Sleep -Seconds 20
+Restart-Computer -Force

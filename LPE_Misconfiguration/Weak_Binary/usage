@@ -1,0 +1,3 @@
+.\Install-VulnService.ps1     -ExecutableURL "<http://your-lab-host/payload.exe>"
+    -FolderPath "C:\Program Files\Insecure Service"     -ServiceName "WeakBinaryPerms"
+    -DisplayName "Insecure Binary Permissions Test"

@@ -1,0 +1,94 @@
+param (
+    [Parameter(Mandatory = $true)]
+    [string]$ExecutableURL,
+
+    [Parameter(Mandatory = $true)]
+    [string]$FolderPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ServiceName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$DisplayName
+)
+
+# Ensure path ends with backslash
+if ($FolderPath[-1] -ne '\') {
+    $FolderPath += '\'
+}
+
+# Decode filename from URL
+Add-Type -AssemblyName System.Web
+$ExecutableName = [System.Web.HttpUtility]::UrlDecode([System.IO.Path]::GetFileName($ExecutableURL))
+$ExecutablePath = Join-Path -Path $FolderPath -ChildPath $ExecutableName
+
+# Create folder if it doesn't exist
+if (-not (Test-Path $FolderPath)) {
+    New-Item -Path $FolderPath -ItemType Directory -Force | Out-Null
+    Write-Host "[+] Folder created at $FolderPath"
+}
+
+# Force TLS 1.2 for HTTPS downloads
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Try downloading with Invoke-WebRequest (retry up to 3 times)
+$downloadSuccess = $false
+for ($i = 1; $i -le 3; $i++) {
+    try {
+        Invoke-WebRequest -Uri $ExecutableURL -OutFile $ExecutablePath -UseBasicParsing -TimeoutSec 15
+        Write-Host "[+] Download successful."
+        $downloadSuccess = $true
+        break
+    }
+    catch {
+        Write-Warning "[!] Download attempt $i failed: $_"
+        Start-Sleep -Seconds 2
+    }
+}
+
+# If still failed, fallback to curl.exe
+if (-not $downloadSuccess) {
+    Write-Host "[~] Falling back to curl.exe..."
+    $curlCmd = "curl.exe -L -o `"$ExecutablePath`" `"$ExecutableURL`""
+    cmd.exe /c $curlCmd | Out-Null
+
+    if (Test-Path $ExecutablePath) {
+        Write-Host "[+] Download successful with curl.exe."
+    } else {
+        Write-Error "[X] Failed to download executable after fallback. Exiting."
+        return
+    }
+}
+
+# Grant modify privileges to BUILTIN\Users
+try {
+    icacls $ExecutablePath /grant "BUILTIN\Users:M" | Out-Null
+    Write-Host "[+] Modify permissions granted to BUILTIN\Users for $ExecutablePath"
+}
+catch {
+    Write-Warning "[!] Failed to grant file permissions: $_"
+}
+
+# Check if the service already exists
+if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+    Write-Warning "[!] Service '$ServiceName' already exists. Skipping creation."
+} else {
+    # Install the service
+    try {
+        New-Service -Name $ServiceName -BinaryPathName $ExecutablePath -DisplayName $DisplayName -Description "Vulnerable binary permission service" -StartupType Automatic
+        Write-Host "[+] Service '$ServiceName' created."
+    }
+    catch {
+        Write-Error "[X] Failed to create service: $_"
+        return
+    }
+}
+
+# Apply weak service permissions
+try {
+    cmd.exe /c "sc sdset `"$ServiceName`" D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;PU)(A;;RPWP;;;BU)"
+    Write-Host "[+] Weak permissions set on service '$ServiceName'"
+}
+catch {
+    Write-Warning "[!] Failed to set weak permissions: $_"
+}

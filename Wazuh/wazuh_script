@@ -1,0 +1,78 @@
+#!/bin/bash
+# install-wazuh.sh
+# Author: [Your Name]
+# Description: Installs either the full Wazuh server stack or the agent only.
+# Usage:
+#   sudo ./install-wazuh.sh --full        # Full Wazuh stack (manager + dashboard)
+#   sudo ./install-wazuh.sh --agent       # Agent only
+#   sudo ./install-wazuh.sh --help        # Show usage instructions
+
+set -e
+
+# ----- Functions -----
+
+show_help() {
+    echo "Usage: $0 [--full | --agent | --help]"
+    echo ""
+    echo "Options:"
+    echo "  --full       Install the full Wazuh server stack (manager, Elasticsearch, dashboard)"
+    echo "  --agent      Install only the Wazuh agent (for endpoints)"
+    echo "  --help       Show this help message"
+}
+
+check_root() {
+    if [[ $EUID -ne 0 ]]; then
+        echo "[-] This script must be run as root." >&2
+        exit 1
+    fi
+}
+install_full_stack() {
+    echo "[+] Installing full Wazuh server stack..."
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "[+] Installing curl..."
+        apt update && apt install -y curl
+    fi
+    echo "[+] Downloading Wazuh installer..."
+    curl -sO https://packages.wazuh.com/4.7/wazuh-install.sh
+    chmod +x wazuh-install.sh
+    echo "[+] Running installer with --ignore-check for unsupported systems..."
+    ./wazuh-install.sh -a --ignore-check
+    echo "[✓] Full Wazuh stack installation complete."
+}
+install_agent() {
+    echo "[+] Installing Wazuh agent..."
+    apt update && apt install -y curl gnupg apt-transport-https lsb-release
+    echo "[+] Importing Wazuh GPG key..."
+    curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --dearmor > /usr/share/keyrings/wazuh.gpg
+    echo "[+] Adding Wazuh APT repository..."
+    echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" \
+        > /etc/apt/sources.list.d/wazuh.list
+    apt update
+    apt install -y wazuh-agent
+    echo "[+] Enabling and starting Wazuh agent..."
+    systemctl enable wazuh-agent
+    systemctl start wazuh-agent
+    echo "[✓] Wazuh agent installed and started successfully."
+}
+# ----- Main Logic -----
+check_root
+if [[ $# -eq 0 ]]; then
+    show_help
+    exit 1
+fi
+case "$1" in
+    --full)
+        install_full_stack
+        ;;
+    --agent)
+        install_agent
+        ;;
+    --help)
+        show_help
+        ;;
+    *)
+        echo "[-] Invalid option: $1"
+        show_help
+        exit 1
+        ;;
+esac

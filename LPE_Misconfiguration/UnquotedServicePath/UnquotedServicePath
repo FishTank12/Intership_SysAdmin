@@ -1,0 +1,72 @@
+param (
+    [Parameter(Mandatory = $true)]
+    [string]$ExecutableURL,
+
+    [Parameter(Mandatory = $true)]
+    [string]$FolderPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ServiceName,
+
+    [Parameter(Mandatory = $true)]
+    [string]$DisplayName
+)
+
+# Ensure folder ends with backslash
+if ($FolderPath[-1] -ne '\') {
+    $FolderPath += '\'
+}
+
+# Decode URL-encoded filename
+Add-Type -AssemblyName System.Web
+$ExecutableName = [System.Web.HttpUtility]::UrlDecode([System.IO.Path]::GetFileName($ExecutableURL))
+$ExecutablePath = Join-Path -Path $FolderPath -ChildPath $ExecutableName
+
+# Create folder if it doesn't exist
+if (-not (Test-Path $FolderPath)) {
+    New-Item -ItemType Directory -Path $FolderPath -Force | Out-Null
+    Write-Host "`n[+] Folder created at $FolderPath`n"
+} else {
+    Write-Host "[+] Folder already exists at $FolderPath`n"
+}
+
+# Force TLS 1.2 for Invoke-WebRequest
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# Try downloading the file
+$downloadSuccess = $false
+for ($i = 1; $i -le 3; $i++) {
+    try {
+        Invoke-WebRequest -Uri $ExecutableURL -OutFile $ExecutablePath -UseBasicParsing -TimeoutSec 15
+        Write-Host "[+] Download successful."
+        $downloadSuccess = $true
+        break
+    } catch {
+        Write-Warning "[!] Download attempt $i failed: $_"
+        Start-Sleep -Seconds 2
+    }
+}
+
+if (-not $downloadSuccess) {
+    Write-Host "[~] Falling back to curl.exe..."
+    $curlCmd = "curl.exe -L -o `"$ExecutablePath`" `"$ExecutableURL`""
+    Invoke-Expression $curlCmd
+    if (Test-Path $ExecutablePath) {
+        Write-Host "[+] Download successful with curl.exe."
+    } else {
+        Write-Error "[X] Failed to download file via curl fallback."
+        return
+    }
+}
+
+# Grant write permissions to BUILTIN\Users on the folder
+Write-Host "[+] Granting write permissions to BUILTIN\Users for the folder"
+icacls "`"$FolderPath`"" /grant "BUILTIN\Users:(OI)(CI)W" | Out-Null
+
+# Create the service with unquoted path
+Write-Host "[+] Installing service '$ServiceName' with display name '$DisplayName'"
+New-Service -Name $ServiceName -BinaryPathName $ExecutablePath -DisplayName $DisplayName -Description "Vulnerable test service for unquoted path testing" -StartupType Automatic
+
+# Set insecure service permissions
+Write-Host "[+] Setting insecure permissions for '$ServiceName' (simulated vulnerable service)"
+cmd.exe /c "sc sdset `"$ServiceName`" D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;PU)(A;;RPWP;;;BU)"
